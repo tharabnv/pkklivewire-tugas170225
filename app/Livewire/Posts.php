@@ -1,47 +1,44 @@
 <?php
-  
+
 namespace App\Livewire;
-  
+
 use Livewire\Component;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 use App\Models\Post;
+use Illuminate\Support\Facades\Storage;
 
 class Posts extends Component
 {
-    use WithPagination;
+    use WithPagination, WithFileUploads;
 
-    public $title, $body, $post_id;
+    public $title, $body, $image, $post_id, $isShowMode = false, $oldImage;
     public $isOpen = false;
-    public $search = ''; // Properti untuk pencarian
+    public $search = '';
 
-    protected $updatesQueryString = ['search']; // Menyimpan pencarian di URL
+    protected $updatesQueryString = ['search'];
 
     public function render()
     {
         $posts = Post::where('title', 'like', '%' . $this->search . '%')
                     ->orWhere('body', 'like', '%' . $this->search . '%')
-                    ->orderBy('id', 'asc') // Ubah ke 'desc' jika ingin dari besar ke kecil
-                    ->paginate(5); // Pakai pagination biar lebih rapi
+                    ->orderBy('id', 'asc')
+                    ->paginate(5);
 
         return view('livewire.posts', compact('posts'));
     }
 
-
-    // public function updatingSearch()
-    // {
-    //     $this->resetPage(); // Reset pagination saat pencarian berubah
-    // }
     public function resetSearch()
     {
-        $this->search = ''; // Mengosongkan input pencarian
-        $this->resetPage(); // Reset pagination ke halaman pertama
+        $this->search = '';
+        $this->resetPage(); 
     }
 
     public function searchPost()
     {
-        $this->resetPage(); // Reset pagination saat pencarian berubah
+        $this->resetPage(); 
     }
-  
+
     public function create()
     {
         $this->resetInputFields();
@@ -56,7 +53,7 @@ class Posts extends Component
     public function closeModal()
     {
         $this->isOpen = false;
-        $this->isShowMode = false; // Reset mode show
+        $this->isShowMode = false;
     }
 
     private function resetInputFields()
@@ -64,22 +61,34 @@ class Posts extends Component
         $this->title = '';
         $this->body = '';
         $this->post_id = '';
+        $this->image = null;
+        $this->oldImage = null;
     }
-     
+
     public function store()
     {
         $this->validate([
             'title' => 'required',
             'body' => 'required',
+            'image' => $this->post_id ? 'nullable|image|max:2048' : 'required|image|max:2048',
         ]);
-   
+
+        $imagePath = $this->oldImage;
+
+        if ($this->image) {
+            if ($this->post_id && $this->oldImage) {
+                Storage::disk('public')->delete($this->oldImage);
+            }
+            $imagePath = $this->image->store('images', 'public');
+        }
+
         Post::updateOrCreate(['id' => $this->post_id], [
             'title' => $this->title,
-            'body' => $this->body
+            'body' => $this->body,
+            'image' => $imagePath
         ]);
-  
-        session()->flash('message', 
-            $this->post_id ? 'Post Updated Successfully.' : 'Post Created Successfully.');
+
+        session()->flash('message', $this->post_id ? 'Post Updated Successfully.' : 'Post Created Successfully.');
 
         $this->closeModal();
         $this->resetInputFields();
@@ -91,13 +100,21 @@ class Posts extends Component
         $this->post_id = $id;
         $this->title = $post->title;
         $this->body = $post->body;
-    
+        $this->oldImage = $post->image;
+
         $this->openModal();
     }
-     
+
     public function delete($id)
     {
-        Post::find($id)->delete();
+        $post = Post::findOrFail($id);
+        
+        if ($post->image) {
+            Storage::disk('public')->delete($post->image);
+        }
+
+        $post->delete();
+
         session()->flash('message', 'Post Deleted Successfully.');
     }
 
@@ -106,8 +123,9 @@ class Posts extends Component
         $post = Post::findOrFail($id);
         $this->title = $post->title;
         $this->body = $post->body;
+        $this->oldImage = $post->image;
         
-        $this->isShowMode = true; // Mode show diaktifkan
-        $this->isOpen = true; // Buka modal
+        $this->isShowMode = true;
+        $this->isOpen = true;
     }
 }
